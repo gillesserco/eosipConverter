@@ -207,7 +207,9 @@ class ingester_planetscope(ingester.Ingester):
             eosipP.setNamingConventionSipInstance(namingConventionSip)
             eosipP.setNamingConventionEoInstance(namingConventionSip)
 
-            processInfo.destProduct.setNamingConventionEoInstance(namingConventionSip)
+            namingConventionEo = NamingConvention_HightRes(self.OUTPUT_EO_PATTERN)
+            eosipP.setNamingConventionEoInstance(namingConventionEo)
+            processInfo.destProduct.setNamingConventionEoInstance(namingConventionEo)
 
             # long sip file
             eosipP.setSipInfoType(product_EOSIP.EXTENDED_SIP_INFO_TYPE)

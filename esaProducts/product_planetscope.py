@@ -99,7 +99,7 @@ class Product_Planetscope(Product_Directory):
         metadata.METADATA_FOOTPRINT:"['geometry']['coordinates']",
         metadata.METADATA_SUN_ELEVATION:"['properties']['sun_elevation']",
         metadata.METADATA_SUN_AZIMUTH: "['properties']['sun_azimuth']",
-        metadata.METADATA_INSTRUMENT_ACROSS_TRACK_INCIDENCE_ANGLE:"['properties']['view_angle']",
+        metadata.METADATA_INSTRUMENT_INCIDENCE_ANGLE:"['properties']['view_angle']",
         #'sun_elevation':"['properties']['sun_elevation']",
         #'sun_azimuth': "['properties']['sun_azimuth']",
         #'incidence_angle':"['properties']['view_angle']",
@@ -514,6 +514,28 @@ class Product_Planetscope(Product_Directory):
         # addLocalAttribute
         self.metadata.addLocalAttribute("originalName", self.productFolderName)
 
+        # cloud coverage
+        tmp = self.metadata.getMetadataValue(metadata.METADATA_CLOUD_COVERAGE)
+        if self.metadata.valueExists(tmp):
+            tmp = int(float(tmp) * 100.0)
+            print("METADATA_CLOUD_COVERAGE ok: %s" % tmp)
+        else:
+            raise Exception("METADATA_CLOUD_COVERAGE not present")
+        self.metadata.setMetadataPair(metadata.METADATA_CLOUD_COVERAGE, tmp)
+
+        # product version
+        tmp = self.metadata.getMetadataValue(metadata.METADATA_SOFTWARE_VERSION)
+        if self.metadata.valueExists(tmp):
+            tmp = tmp.replace('.', '')
+            if len(tmp) != 3:
+                raise Exception("METADATA_SOFTWARE_VERSION as str: '%s' is not 3 digit length" % tmp)
+            else:
+                tmp='%s0' % tmp
+                print("METADATA_SOFTWARE_VERSION as str: '%s'" % tmp)
+        else:
+            raise Exception("METADATA_SOFTWARE_VERSION not present")
+        self.metadata.setMetadataPair(metadata.METADATA_PRODUCT_VERSION, tmp)
+
     #
     #
     #
@@ -600,13 +622,13 @@ class Product_Planetscope(Product_Directory):
                                                            tmp[0][0][1], tmp[0][0][0],
                                                        )
         else:
-            #raise Exception("strange footprint, has not 5 pairs but: %s" % len(tmp[0]))
-            footprint = "%s %s %s %s %s %s %s %s %s %s" % (tmp[0][0][1], tmp[0][0][0],
+            raise Exception("strange footprint, has not 5 pairs but: %s" % len(tmp[0]))
+            """footprint = "%s %s %s %s %s %s %s %s %s %s" % (tmp[0][0][1], tmp[0][0][0],
                                                            tmp[0][1][1], tmp[0][1][0],
                                                            tmp[0][2][1], tmp[0][2][0],
                                                            tmp[0][3][1], tmp[0][3][0],
                                                            tmp[0][0][1], tmp[0][0][0],
-                                                           )
+                                                           )"""
 
         self.metadata.setMetadataPair("first-footprint", footprint)
         #print("FOOTPRINT: %s"  % footprint)
