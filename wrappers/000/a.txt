@@ -1,0 +1,231 @@
+import os, sys
+import subprocess as sp
+import traceback
+
+import zipfile
+
+#
+#
+ZIP_STORED=zipfile.ZIP_STORED
+ZIP_DEFLATED=zipfile.ZIP_DEFLATED
+
+
+#
+debug=0
+#
+NOT_IMPLEMENTED='NOT_IMPLEMENTED'
+
+
+
+
+
+
+#
+#
+#
+class ZipFile():
+    
+    # variable used:
+    path = None
+    openWithPath=False
+    fd=None
+    rwFlag = None
+    
+    # os related:
+    osZipCommand = 'zip'
+    
+    #
+    # create zipFile, use a fd file descriptor
+    # ZipFile method
+    #
+    def __init__(self, fd=None):
+        self.fd = fd
+        self.commands=[]
+        self.keepCommands("ZipFile created using fd=%s" % self.fd)
+        print "ZipFile created using fd=%s" % self.fd
+
+
+    #
+    # create zipFile, use a file path and a rw flag
+    # ZipFile method
+    #
+    def __init__(self, path=None, rw='r'):
+        self.path = path
+        self.rwFlag = rw
+        self.commands=[]
+        self.openWithPath=True
+        if self.rwFlag=='r':
+            # file must exists
+            self.fd=open(self.path, self.rwFlag)
+            if not os.path.exists(self.path):
+                raise IOError("file does not exists:%s" % self.path)
+        else:
+            self.fd=open(self.path, self.rwFlag)
+            self.keepCommands("ZipFile created using path=%s and rwFlag=%s" % (self.path, self.rwFlag))
+            print "ZipFile created using path=%s and rwFlag=%s" % (self.path, self.rwFlag)
+
+
+    #
+    # close
+    # ZipFile method
+    #
+    # close only in fd mode
+    #
+    def close(self):
+        self.keepCommands('close')
+        if self.openWithPath:
+            self.keepCommands('closing, opened with path, close fd:%s' % self.fd)
+            self.fd.close()
+            self.keepCommands(' closed done')
+        else:
+            self.keepCommands('closing, opened with fd:%s' % self.fd)
+            self.fd.close()
+            self.keepCommands(' closed done')
+
+
+    #
+    # flush
+    # ZipFile method
+    #
+    # do nothing
+    #
+    def flush(self):
+        self.keepCommands('flush')
+        
+
+    #
+    # read a zipFile entry
+    # ZipFile method
+    #
+    # param name: name of the entry
+    # returns: bytes
+    #
+    def read(self, name):
+        self.keepCommands('read(%s)' % name)
+        raise Exception(NOT_IMPLEMENTED)
+
+
+    #
+    # test a zipFile
+    # ZipFile method
+    #
+    def testzip(self):
+        self.keepCommands('testzip')
+        args = [self.osZipCommand, 't', self.path]
+        res, out = self.runCommand(args)
+        if res!=0:
+            raise Exception(out)
+        self.keepCommands(' testzip done')
+
+    #
+    # write a zipFile entry
+    # ZipFile method
+    #
+    # param localPath: local path of file to be added
+    # param alias: zip entry name
+    # param compressionLevel: ZIP_DEFLATED or ZIP_STORED
+    #
+    def write(self, localPath, alias=None, compressionLevel=ZIP_DEFLATED):
+        self.keepCommands('write: localPath=%s; alias=%s; compression=%s' % (localPath, alias, compressionLevel))
+        # test file to add exists
+        if not os.path.exists(localPath): raise IOError('file does not exists:%s' % localPath)
+        # test not in read mode
+        if self.fd.mode == 'r': raise IOError('canot write, file %s is in read mode:%s' % (localPath, self.fd.mode))
+            
+        
+        #raise Exception(NOT_IMPLEMENTED)
+        args = [self.osZipCommand, self.path, localPath]
+        if compressionLevel==ZIP_DEFLATED:
+            args.append('-9')
+        elif compressionLevel==ZIP_STORED:
+            args.append('-0')
+        else:
+            raise Exception("unknown complession level:%s" % compressionLevel)
+        res, out = self.runCommand(args)
+        self.keepCommands(' write done')
+        
+
+
+
+
+    #
+    #
+    # MY STUFF:
+    #
+    #
+    #
+    # keep commands
+    # GL stuff
+    #
+    def keepCommands(self, msg):
+        self.commands.append(msg)
+
+
+    #
+    # get info
+    # GL stuff
+    #
+    def info(self):
+        res = "ZipFile: fd='%s'\n" % self.fd
+        res = "commands used:\n"
+        for item in self.commands:
+            res = "%s >%s\n" % (res, item)
+        return res
+    
+    #
+    # get info
+    # GL stuff
+    #
+    def clearInfo(self):
+        self.commands=[]
+
+        
+        
+    #
+    #
+    #
+    def runCommand(self, args):
+        print "will run command:%s" % args
+        
+        sub = sp.Popen(args, stdout=sp.PIPE, stdin=sp.PIPE)
+        print "  subprocess done"
+        
+        stdout = sub.communicate()[0]
+        print "  got stdout:%s" % stdout
+        
+        res = sub.returncode
+        print "  returncode:%s" % res
+        
+        return res, stdout
+    
+
+if __name__ == '__main__':
+    try:
+        print "starting"
+
+
+        # test a zip file
+        zipf = ZipFile('/home/gilles/shared2/test/a.zip', 'r')
+        zipf.testzip()
+        zipf.close()
+        print "zip test commands:%s" % zipf.info()
+
+
+        # create a zip file
+        if 1==1:
+            zipf = ZipFile('/home/gilles/shared2/test/wrapper_test.zip', 'w')
+            zipf.write('/home/gilles/shared2/test/browse.txt', 'browse.txt')
+            zipf.close()
+            print "zip write commands:%s" % zipf.info()
+        
+        print "done"
+    except:
+        exc_type, exc_obj, exc_tb = sys.exc_info()
+        print "xml error: %s   %s\n%s\n" %  (exc_type, exc_obj, traceback.format_exc())
+
+
+
+
+
+    
+    

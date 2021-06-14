@@ -1,0 +1,745 @@
+#!/usr/bin/env python
+#
+#
+
+import os,sys,inspect
+import traceback
+import zipfile
+from optparse import OptionParser
+
+
+# neeedd to find the template file:
+__templateDir = os.path.dirname(os.path.abspath(inspect.getfile(inspect.currentframe())))
+
+
+# when started as a script or from interpreter
+#
+# this is eoSip_converter.kmz; add parent.parent to have import works
+#
+if __name__ == '__main__':
+    print " start as script" 
+    parentdir = os.path.dirname(__templateDir)
+    parent2dir = os.path.dirname(parentdir)
+    print " parent2dir:%s" % parent2dir
+    sys.path.insert(0,parent2dir)
+else:
+    print " loaded" 
+
+
+from eoSip_converter.esaProducts import metadata
+import eoSip_converter.xmlHelper as xmlHelper
+
+
+PATH='E:/Shared/converter_workspace/outspace/EN1_NPDE_ASA_IM__0P_20070101T051053_20070101T051253_025295_0191_20090315T012153_0001.MDP.ZIP'
+KML_TEMPLATE='TEMPLATE.KML'
+LINEAR_RING_PATH='featureOfInterest/Footprint/multiExtentOf/MultiSurface/surfaceMember/Polygon/exterior/LinearRing/posList'
+SCENE_CENTER_PATH='featureOfInterest/Footprint/centerOf/Point/pos'
+SPECIFIC_ATTRIBUTES_PATH='metaDataProperty/EarthObservationMetaData/vendorSpecific/SpecificInformation'
+#
+DEBUG=True
+
+EXT_SIP_ZIP='.SIP.ZIP'
+EXT_ZIP='.ZIP'
+
+
+
+#
+# use from command line
+#
+def main():
+    """Main funcion"""
+
+    print "sys.argv:%s"  % sys.argv
+
+    path=PATH
+    options=[]
+    parser = OptionParser()
+    parser.add_option("-p", "--path", dest="path", help="eoSip path")
+    parser.add_option("-b", "--boundingbox", dest="boundingBox", default=False, help="use boundingBox instead of footprint")
+    pOptions, args = parser.parse_args(sys.argv)
+
+    if pOptions.path != None:
+        path=pOptions.path
+    else:
+        raise Exception('need a path, try -h for syntax')
+
+    useBoundingBox=False
+    if pOptions.boundingBox != None:
+        print " pOptions.boundingBox=%s" % pOptions.boundingBox
+        if pOptions.boundingBox=='True':
+            options.append('boundingbox')
+            useBoundingBox=True
+    
+
+    print "\n eosipToKmz on product at path:%s, useBoundingBox=%s" % (path, useBoundingBox)
+    
+    browseName, browseData = getBrowseDatafromZip(path)
+    id=browseName.split('.')[0]
+    print "\n use browse:%s of length:%s" % (browseName, len(browseData))
+
+    xmlData = getMetadataReportfromZip(path)
+    #if DEBUG:
+    #    print xmlData
+
+    #
+    linearRing=makeLinearRing(xmlData, False, options)
+
+    #
+    sceneCenter=getSceneCenter(xmlData)
+
+    #
+    SCENE_CENTER_POINT="%s,%s,0" % (sceneCenter.split(' ')[1], sceneCenter.split(' ')[0])
+
+    fd=open("%s/%s" % (__templateDir, KML_TEMPLATE))
+    data=fd.read()
+    fd.close()
+
+    #
+    data=data.replace('PRODUCT_NAME', path)
+
+    data=data.replace('PRODUCT_CENTER_LONGITUDE', sceneCenter.split(' ')[1])
+
+    data=data.replace('PRODUCT_CENTER_LATITUDE', sceneCenter.split(' ')[0])
+
+    data=data.replace('PRODUCT_LINEAR_RING', linearRing)
+
+    data=data.replace('SCENE_CENTER_POINT', SCENE_CENTER_POINT)
+
+    data=data.replace('PRODUCT_BROWSE_HREF', browseName)
+
+    
+    #
+    #if DEBUG:
+    #    print "KML:\n%s" % data
+
+    #
+    outPath='.'
+    kmzPath = "%s/%s.KMZ" % (outPath,id)
+    zipf = zipfile.ZipFile(kmzPath, 'w')
+    zipf.writestr("%s.KML" % id, data, zipfile.ZIP_DEFLATED)
+    zipf.writestr(browseName, browseData, zipfile.ZIP_DEFLATED)
+    zipf.close()
+    print "\n\n KMZ created:%s" % kmzPath
+
+
+
+#
+# # called when creating KMZ from converter
+#
+# make one KMZ, two cases:
+# single EoSIp : index =-1
+# multiple EoSip: index >=0
+#
+def makeOneKml(useBoundingBox, outPath, aProcessInfo, index):
+    try:
+        if index<0:
+            print "\n makeOneKml"
+            product=aProcessInfo.destProduct
+        else:
+            print "\n makeOneKml (multiple case), index: %s" % index
+            product = aProcessInfo.destProduct.getEoSip(index)
+        
+        print " product: %s" % product
+        eoSipPath = product.getPath()
+        print " eoSipPath: %s" % eoSipPath
+            
+        # 
+        browseName = product.sourceBrowsesPath[0]
+        fd=open(browseName, 'r')
+        browseData=fd.read()
+        fd.close()
+
+        # id
+        browseNameInZip=browseName.split('/')[-1]
+        id=browseNameInZip.split('.')[0]
+        print " use browse:%s ; data length:%s" % (browseName, len(browseData))
+        print " id:%s" % (id)
+
+        # get linearRing and scene center
+        ring=None
+        if useBoundingBox:
+            # BBOX metada is already 5 pair coords closed
+            #
+            ring=product.metadata.getMetadataValue(metadata.METADATA_BOUNDING_BOX)
+            # add 5th closing node
+            #toks=ring.split(' ')
+            #ring="%s %s %s" % (ring, toks[0], toks[1])
+
+
+            
+            print " bounding box:%s" % (ring)
+        else:
+            ring=product.metadata.getMetadataValue(metadata.METADATA_FOOTPRINT)
+            print " footpring:%s" % (ring)
+
+        sceneCenter=product.metadata.getMetadataValue(metadata.METADATA_SCENE_CENTER)
+        print " sceneCenter:%s" % (sceneCenter)
+
+
+        #
+        coords = ring.split(' ')
+        result=''
+        n=0
+        # for descending EoSip: this create a CW: UL, UR, LR, LL, UL
+        for coord in reversed(coords):
+                if len(result)>0 and n%2==1:
+                    result="%s," % (result)
+                result="%s%s" % (result, coord)
+                if n%2==1:
+                    result="%s,0 " % (result)
+                n=n+1
+
+        if DEBUG:
+            print "\n kml lon,lat,elev ring:'%s'" % result
+
+        result2=''
+        toks=result.split(' ')
+        # 5 token
+        if DEBUG:
+            print "\n num tokens:%s" % len(toks)
+        n=0
+        for tok in toks:
+            if DEBUG:
+                print " token[%s]:%s" % (n, tok)
+            n=n+1
+        print ""
+
+        
+        lon, lat, elev = toks[3].split(',')
+        result2="%s,%s,0" % (lon, lat)
+        #print " result2 0:%s" % result2
+
+        lon, lat, elev = toks[2].split(',')
+        result2="%s %s,%s,0" % (result2, lon, lat)
+        #print " result2 1:%s" % result2
+
+        lon, lat, elev = toks[1].split(',')
+        result2="%s %s,%s,0" % (result2, lon, lat)
+        #print " result2 2:%s" % result2
+
+        lon, lat, elev = toks[0].split(',')
+        result2="%s %s,%s,0" % (result2, lon, lat)
+        #print " result2 3:%s" % result2
+
+        lon, lat, elev = toks[3].split(',')
+        result2="%s %s,%s,0" % (result2, lon, lat)
+        #print " result2 3:%s" % result2
+
+        linearRing=result2
+        print " kmz linearRing:%s" % (linearRing)
+
+
+        #
+        SCENE_CENTER_POINT="%s,%s,0" % (sceneCenter.split(' ')[1], sceneCenter.split(' ')[0])
+
+        fd=open("%s/%s" % (__templateDir, KML_TEMPLATE))
+        data=fd.read()
+        fd.close()
+
+        #
+        data=data.replace('PRODUCT_NAME', eoSipPath.split('/')[-1])
+        data=data.replace('PRODUCT_CENTER_LONGITUDE', sceneCenter.split(' ')[1])
+        data=data.replace('PRODUCT_CENTER_LATITUDE', sceneCenter.split(' ')[0])
+        data=data.replace('PRODUCT_LINEAR_RING', linearRing)
+        data=data.replace('SCENE_CENTER_POINT', SCENE_CENTER_POINT)
+        data=data.replace('PRODUCT_BROWSE_HREF', browseNameInZip)
+
+        description='<html><body></body></html>'
+        data=data.replace('PRODUCT_DESCRIPTION', buildHtmlDescription(product))
+
+        #
+        kmzPath = "%s/%s.KMZ" % (outPath,id)
+        zipf = zipfile.ZipFile(kmzPath, 'w')
+        zipf.writestr("%s.KML" % id, data, zipfile.ZIP_DEFLATED)
+        zipf.writestr(browseNameInZip, browseData, zipfile.ZIP_DEFLATED)
+        zipf.close()
+        print " KMZ created:%s" % kmzPath
+        return kmzPath
+    except:
+        print "Error: problem writing current kmz file in fodler:%s" % aProcessInfo.workFolder
+        exc_type, exc_obj, exc_tb = sys.exc_info()
+        print " problem is:%s  %s\n%s\n" %  (exc_type, exc_obj, traceback.format_exc())
+        return None
+
+
+#
+#
+#
+def buildHtmlDescription(product):
+    original_name=product.metadata.getMetadataValue(metadata.METADATA_ORIGINAL_NAME)
+    
+    startDate=product.metadata.getMetadataValue(metadata.METADATA_START_DATE)
+    startTime=product.metadata.getMetadataValue(metadata.METADATA_START_TIME)
+    stopDate=product.metadata.getMetadataValue(metadata.METADATA_STOP_DATE)
+    stopTime=product.metadata.getMetadataValue(metadata.METADATA_STOP_TIME)
+    
+    instrument=product.metadata.getMetadataValue(metadata.METADATA_INSTRUMENT)
+    orbit=product.metadata.getMetadataValue(metadata.METADATA_ORBIT)
+    platform=product.metadata.getMetadataValue(metadata.METADATA_PLATFORM)
+    platformId=product.metadata.getMetadataValue(metadata.METADATA_PLATFORM_ID)
+
+    typecode=product.metadata.getMetadataValue(metadata.METADATA_TYPECODE)
+    size=product.metadata.getMetadataValue(metadata.METADATA_PRODUCT_SIZE)
+
+    size=product.metadata.getMetadataValue(metadata.METADATA_PRODUCT_SIZE)
+    size=product.metadata.getMetadataValue(metadata.METADATA_PRODUCT_SIZE)
+
+    sensorType=product.metadata.getMetadataValue(metadata.METADATA_SENSOR_TYPE)
+    sensorMode=product.metadata.getMetadataValue(metadata.METADATA_SENSOR_OPERATIONAL_MODE)
+
+    #
+    description='<html><body><table>'
+    description="%s<tr><td bgcolor='dedede'>Original name: </td><td bgcolor='eeeeee'>%s</td></tr>" % (description, original_name)
+    description="%s<tr><td bgcolor='dedede'>Size: </td><td bgcolor='eeeeee'>%s</td></tr>" % (description, size)
+    description="%s<tr><td bgcolor='dedede'>Type code: </td><td bgcolor='eeeeee'>%s</td></tr>" % (description, typecode)
+    description="%s<tr><td bgcolor='dedede'>Platform: </td><td bgcolor='eeeeee'>%s%s</td></tr>" % (description, platform, platformId)
+    description="%s<tr><td bgcolor='dedede'>Start: </td><td bgcolor='eeeeee'>%s %s</td></tr>" % (description, startDate, startTime)
+    description="%s<tr><td bgcolor='dedede'>Stop: </td><td bgcolor='eeeeee'>%s %s</td></tr>" % (description, stopDate, stopTime)
+
+    description="%s<tr><td bgcolor='dedede'>Sensor type: </td><td bgcolor='eeeeee'>%s</td></tr>" % (description, sensorType)
+    description="%s<tr><td bgcolor='dedede'>Sensor mode: </td><td bgcolor='eeeeee'>%s</td></tr>" % (description, sensorMode)
+    
+    description="%s</table></body></html>" % (description)
+    return description
+    
+
+
+#
+# used from converter
+# don't use the ZIP, use values from products
+#
+def makeKmlFromEoSip_new_ok(useBoundingBox, outPath, aProcessInfo):
+    try:
+        eoSipPath = aProcessInfo.destProduct.getPath()
+        result=None
+        if isinstance(eoSipPath, list):
+            result=[]
+            n=0
+            for iten in eoSipPath:
+                path = makeOneKml(useBoundingBox, outPath, aProcessInfo, n)
+                result.append(path)
+                n=n+1
+        else:
+            result = makeOneKml(useBoundingBox, outPath, aProcessInfo, -1)
+
+        return result
+        
+    except:
+        print "Error: problem writing current kmz file in fodler:%s" % aProcessInfo.workFolder
+        exc_type, exc_obj, exc_tb = sys.exc_info()
+        print " problem is:%s  %s\n%s\n" %  (exc_type, exc_obj, traceback.format_exc())
+        return None
+
+
+#
+# used from converter
+# don't use the ZIP, use values from products
+#
+def makeKmlFromEoSip_new_ok_ok(useBoundingBox, outPath, aProcessInfo):
+    try:
+        eoSipPath = aProcessInfo.destProduct.path
+        print "\n make kmz for product at path:%s; useBoundingBox=%s" % (eoSipPath, useBoundingBox)
+        print "  outPath is: %s" % outPath
+        print "  useBoundingBox is: %s" % useBoundingBox
+        options=[]
+        if useBoundingBox:
+            options.append('boundingbox')
+            
+        # TBD
+        browseName = aProcessInfo.destProduct.sourceBrowsesPath[0]
+        fd=open(browseName, 'r')
+        browseData=fd.read()
+        fd.close()
+
+        # id
+        browseNameInZip=browseName.split('/')[-1]
+        id=browseNameInZip.split('.')[0]
+        print " use browse:%s ; data length:%s" % (browseName, len(browseData))
+        print " id:%s" % (id)
+
+        # get linearRing and scene center
+        ring=None
+        if useBoundingBox:
+            ring=aProcessInfo.srcProduct.metadata.getMetadataValue(metadata.METADATA_BOUNDING_BOX)
+            # add 5th closing node
+            toks=ring.split(' ')
+            ring="%s %s %s" % (ring, toks[0], toks[1])
+            print " bounding box:%s" % (ring)
+        else:
+            ring=aProcessInfo.srcProduct.metadata.getMetadataValue(metadata.METADATA_FOOTPRINT)
+            print " footpring:%s" % (ring)
+
+        sceneCenter=aProcessInfo.srcProduct.metadata.getMetadataValue(metadata.METADATA_SCENE_CENTER)
+        print " sceneCenter:%s" % (sceneCenter)
+
+
+        #
+        coords = ring.split(' ')
+        result=''
+        n=0
+        # for descending EoSip: this create a CW: UL, UR, LR, LL, UL
+        for coord in reversed(coords):
+                if len(result)>0 and n%2==1:
+                    result="%s," % (result)
+                result="%s%s" % (result, coord)
+                if n%2==1:
+                    result="%s,0 " % (result)
+                n=n+1
+
+        if DEBUG:
+            print "\n kml lon,lat,elev ring:'%s'" % result
+
+        result2=''
+        toks=result.split(' ')
+        # 5 token
+        if DEBUG:
+            print "\n num tokens:%s" % len(toks)
+        n=0
+        for tok in toks:
+            if DEBUG:
+                print " token[%s]:%s" % (n, tok)
+            n=n+1
+        print ""
+
+        
+        lon, lat, elev = toks[3].split(',')
+        result2="%s,%s,0" % (lon, lat)
+        #print " result2 0:%s" % result2
+
+        lon, lat, elev = toks[2].split(',')
+        result2="%s %s,%s,0" % (result2, lon, lat)
+        #print " result2 1:%s" % result2
+
+        lon, lat, elev = toks[1].split(',')
+        result2="%s %s,%s,0" % (result2, lon, lat)
+        #print " result2 2:%s" % result2
+
+        lon, lat, elev = toks[0].split(',')
+        result2="%s %s,%s,0" % (result2, lon, lat)
+        #print " result2 3:%s" % result2
+
+        lon, lat, elev = toks[3].split(',')
+        result2="%s %s,%s,0" % (result2, lon, lat)
+        #print " result2 3:%s" % result2
+
+        linearRing=result2
+        print " kmz linearRing:%s" % (linearRing)
+
+
+        #
+        SCENE_CENTER_POINT="%s,%s,0" % (sceneCenter.split(' ')[1], sceneCenter.split(' ')[0])
+
+        fd=open("%s/%s" % (__templateDir, KML_TEMPLATE))
+        data=fd.read()
+        fd.close()
+
+        #
+        data=data.replace('PRODUCT_NAME', eoSipPath.split('/')[-1])
+        data=data.replace('PRODUCT_CENTER_LONGITUDE', sceneCenter.split(' ')[1])
+        data=data.replace('PRODUCT_CENTER_LATITUDE', sceneCenter.split(' ')[0])
+        data=data.replace('PRODUCT_LINEAR_RING', linearRing)
+        data=data.replace('SCENE_CENTER_POINT', SCENE_CENTER_POINT)
+        data=data.replace('PRODUCT_BROWSE_HREF', browseNameInZip)
+
+        #
+        kmzPath = "%s/%s.KMZ" % (outPath,id)
+        zipf = zipfile.ZipFile(kmzPath, 'w')
+        zipf.writestr("%s.KML" % id, data, zipfile.ZIP_DEFLATED)
+        zipf.writestr(browseNameInZip, browseData, zipfile.ZIP_DEFLATED)
+        zipf.close()
+        print " KMZ created:%s" % kmzPath
+        return kmzPath
+    except:
+        print "Error: problem writing current kmz file in fodler:%s" % aProcessInfo.workFolder
+        exc_type, exc_obj, exc_tb = sys.exc_info()
+        print " problem is:%s  %s\n%s\n" %  (exc_type, exc_obj, traceback.format_exc())
+        return None
+
+
+#
+# used from converter
+#
+def makeKmlFromEoSip(eoSipPath, useBoundingBox, outPath, aProcessInfo):
+    try:
+        print "\n eosipToKmz on product at path:%s; useBoundingBox=%s" % (eoSipPath, useBoundingBox)
+        options=[]
+        if useBoundingBox:
+            options.append('boundingbox')
+        #
+        browseName, browseData = getBrowseDatafromZip(eoSipPath)
+        id=browseName.split('.')[0]
+        print " use browse:%s ; data length:%s" % (browseName, len(browseData))
+
+        xmlData = getMetadataReportfromZip(eoSipPath)
+
+        #
+        linearRing=makeLinearRing(xmlData, False, options)
+
+        #
+        sceneCenter=getSceneCenter(xmlData)
+
+        #
+        SCENE_CENTER_POINT="%s,%s,0" % (sceneCenter.split(' ')[1], sceneCenter.split(' ')[0])
+
+        fd=open("%s/%s" % (__templateDir, KML_TEMPLATE))
+        data=fd.read()
+        fd.close()
+
+        #
+        data=data.replace('PRODUCT_NAME', eoSipPath.split('/')[-1])
+        data=data.replace('PRODUCT_CENTER_LONGITUDE', sceneCenter.split(' ')[1])
+        data=data.replace('PRODUCT_CENTER_LATITUDE', sceneCenter.split(' ')[0])
+        data=data.replace('PRODUCT_LINEAR_RING', linearRing)
+        data=data.replace('SCENE_CENTER_POINT', SCENE_CENTER_POINT)
+        data=data.replace('PRODUCT_BROWSE_HREF', browseName)
+
+        #
+        kmzPath = "%s/%s.KMZ" % (outPath,id)
+        zipf = zipfile.ZipFile(kmzPath, 'w')
+        zipf.writestr("%s.KML" % id, data, zipfile.ZIP_DEFLATED)
+        zipf.writestr(browseName, browseData, zipfile.ZIP_DEFLATED)
+        zipf.close()
+        print " KMZ created:%s" % kmzPath
+        return kmzPath
+    except:
+        print "Error: problem writing current file log in fodler:%s" % aProcessInfo.workFolder
+        exc_type, exc_obj, exc_tb = sys.exc_info()
+        print " problem is:%s  %s\n%s\n" %  (exc_type, exc_obj, traceback.format_exc())
+        return None
+
+
+
+#
+# called when creating KMZ from EoSip file
+#
+# make KMZ linear ring like: 
+# try: LL, LR, UR, UL, LL
+#
+# EoSip is CCW: lat lon
+# bounding box in epSip medata report is 4 pairs
+#
+def makeLinearRing(xmlData, reverse=False, options=None):
+    # extact metadata
+    helper=xmlHelper.XmlHelper()
+    #helper.setDebug(1)
+    helper.setData(xmlData);
+    helper.parseData()
+
+    # 
+    tmpNodes=[]
+    boundingbox=False
+    # get CCW eoSip footprint
+    print " options:%s" % options
+    try:
+        options.index('boundingbox')
+        boundingbox=True
+    except:
+        pass
+        
+    if boundingbox:
+        print " BOUNDINGBOX CASE:"
+        helper.getNodeByPath(None, SPECIFIC_ATTRIBUTES_PATH, None, tmpNodes)
+        #helper.setDebug(True)
+        print "\n number of nodes found:%s" % len(tmpNodes)
+        for node in tmpNodes:
+            #print "\n\n\n##### doing node:%s" % node
+            aChildren = helper.getNodeChildrenByName(node, 'localAttribute')
+            #print "##### aChildren:%s" % aChildren
+            helper.setDebug(True)
+            tmp=helper.getNodeText(aChildren[0])
+            print "##### localAttribute:%s'" % tmp
+            if tmp=='boundingBox':
+                #print "#### found boundingBox"
+                aChildren = helper.getNodeChildrenByName(node, 'localValue')
+                tmp=helper.getNodeText(aChildren[0])
+                # add 5th closing node
+                toks=tmp.split(' ')
+                tmp="%s %s %s" % (tmp, toks[0], toks[1])
+                print " boundingBox:'%s'" % tmp
+                break
+            
+    else:
+        print " FOOTPRINT CASE:"
+        helper.getNodeByPath(None, LINEAR_RING_PATH, None, tmpNodes)
+        tmp=helper.getNodeText(tmpNodes[0])
+        print " boundingBox:'%s'" % tmp
+    
+    if len(tmpNodes)==0:
+        raise Exception('can not get element at LINEAR_RING_PATH:%s' % LINEAR_RING_PATH)
+
+    
+    if DEBUG:
+        print "\n footprint linear ring:%s" % tmp
+
+    coords = tmp.split(' ')
+    result=''
+    n=0
+    # for descending EoSip: this create a CW: UL, UR, LR, LL, UL
+    for coord in reversed(coords):
+            if len(result)>0 and n%2==1:
+                result="%s," % (result)
+            result="%s%s" % (result, coord)
+            if n%2==1:
+                result="%s,0 " % (result)
+            n=n+1
+
+    if DEBUG:
+        print "\n kml lon,lat,elev ring:'%s'" % result
+
+    result2=''
+    toks=result.split(' ')
+    # 5 token
+    if DEBUG:
+        print "\n num tokens:%s" % len(toks)
+    n=0
+    for tok in toks:
+        if DEBUG:
+            print " token[%s]:%s" % (n, tok)
+        n=n+1
+    print ""
+
+    
+    lon, lat, elev = toks[3].split(',')
+    result2="%s,%s,0" % (lon, lat)
+    #print " result2 0:%s" % result2
+
+    lon, lat, elev = toks[2].split(',')
+    result2="%s %s,%s,0" % (result2, lon, lat)
+    #print " result2 1:%s" % result2
+
+    lon, lat, elev = toks[1].split(',')
+    result2="%s %s,%s,0" % (result2, lon, lat)
+    #print " result2 2:%s" % result2
+
+    lon, lat, elev = toks[0].split(',')
+    result2="%s %s,%s,0" % (result2, lon, lat)
+    #print " result2 3:%s" % result2
+
+    lon, lat, elev = toks[3].split(',')
+    result2="%s %s,%s,0" % (result2, lon, lat)
+    #print " result2 3:%s" % result2
+
+    if DEBUG:
+        print "\n browse kml linear ring:%s" % result2
+    return result2
+
+
+#
+# return scene center 'lat lon'
+#
+def getSceneCenter(xmlData):
+    # extact metadata
+    helper=xmlHelper.XmlHelper()
+    #helper.setDebug(1)
+    helper.setData(xmlData);
+    helper.parseData()
+
+    # 
+    tmpNodes=[]
+    helper.getNodeByPath(None, SCENE_CENTER_PATH, None, tmpNodes)
+    if len(tmpNodes)==0:
+        raise Exception('can not get element at SCENE_CENTER_PATH:%s' % SCENE_CENTER_PATH)
+    tmp=helper.getNodeText(tmpNodes[0])
+    print "\n scene center:%s" % tmp
+    return tmp
+
+#
+#
+#
+def getMetadataReportfromZip(path):
+    shortName=os.path.split(path)[-1]
+    if shortName.upper().endswith(EXT_SIP_ZIP):
+        shortName=shortName[0:-len(EXT_SIP_ZIP)]
+        if DEBUG:
+            print "  shortName:%s" % (shortName)
+
+    elif shortName.upper().endswith(EXT_ZIP):
+        shortName=shortName[0:-len(EXT_ZIP)]
+        if DEBUG:
+            print "  shortName:%s" % (shortName)
+            
+    reportName=None
+    reportData=None
+    fh = open(path, 'rb')
+    z = zipfile.ZipFile(fh)
+    n=0
+    d=0
+    for name in z.namelist():
+        firstLevel=True
+        if name.find('/')>=0:
+            firstLevel=False
+            
+        if firstLevel:
+            #print "  first level:"
+            if name.upper().endswith('%s.XML' % shortName):
+                reportName=name
+                reportData=z.read(name)
+                if DEBUG:
+                    print "  found metadata report:%s" % (reportName)
+                break
+
+            elif name.upper().endswith('%s.MD.XML' % shortName):
+                reportName=name
+                reportData=z.read(name)
+                if DEBUG:
+                    print "  found metadata report:%s" % (reportName)
+                break
+            
+        n=n+1
+        #if DEBUG:
+        #    print "  zip content[%d]:%s" % (n, name)
+        if name.endswith('/'):
+            d=d+1
+            firstLevel=False
+
+        
+    z.close()
+    fh.close()
+    return reportData
+
+
+#
+#
+#
+def getBrowseDatafromZip(path):
+    browseData=None
+    browseName=None
+    fh = open(path, 'rb')
+    z = zipfile.ZipFile(fh)
+    n=0
+    d=0
+    for name in z.namelist():
+        firstLevel=True
+        if name.find('/')>=0:
+            firstLevel=False
+
+        if firstLevel:
+            #print "  first level:"
+            if name.upper().endswith('.PNG'):
+                browseName=name
+                browseData=z.read(browseName)
+            elif name.upper().endswith('.JPG'):
+                browseName=name
+                browseData=z.read(browseName)
+            
+        n=n+1
+        #if DEBUG:
+        #    print "  zip content[%d]:%s" % (n, name)
+        if name.endswith('/'):
+            d=d+1
+            firstLevel=False
+
+        if browseName is not None:
+            break
+        
+    z.close()
+    fh.close()
+    return browseName, browseData
+
+
+#
+#
+#
+if __name__ == "__main__":
+    main()
+
