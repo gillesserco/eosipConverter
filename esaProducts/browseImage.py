@@ -218,10 +218,10 @@ class BrowseImage():
     #
     # get the boundingBox
     #
-    def calculateBoondingBox(self):
+    def calculateBoondingBox(self, calculateCenter = True):
         if self.footprint==None:
             return
-        if self.centerLat==None or self.centerLon==None:
+        if calculateCenter and (self.centerLat==None or self.centerLon==None):
             self.calculateCenter()
             
         self.testCrossing()
@@ -241,7 +241,7 @@ class BrowseImage():
             longn = float(toks[item*2+1])
 
             if latn > maxLat:
-                maxLat=latn;
+                maxLat=latn
             if latn < minLat:
                 minLat=latn
 
@@ -311,18 +311,13 @@ class BrowseImage():
 
 
     #
-    # get the footprint center: use the first and middle point to do it
+    # only for EoSip 4 corner closed footprint
+    # get the footprint center: use the first and middle point of the footprint to do it
     #
     def calculateCenter(self):
-        # get the first and middle footprint coords
+    
         toks=self.footprint.split(" ")
-        #print "2eme coord: lat=%s lon=%s" % (toks[(len(toks)/2)-1], toks[(len(toks)/2)] )
-        #self.centerLat, self.centerLon = geomHelper.coordinateBetween(float(toks[0]), float(toks[1]), float(toks[(len(toks)/2)-1]), float(toks[(len(toks)/2)]))
-        #print "@@@@@@@@@@@@@@@@@@@@@@@calculateCenter 0:%s  %s" % (self.centerLat,self.centerLon)
-        #self.centerLat=formatUtils.EEEtoNumber("%s" % self.centerLat)
-        #self.centerLon=formatUtils.EEEtoNumber("%s" % self.centerLon)
-        #print "@@@@@@@@@@@@@@@@@@@@@@@calculateCenter 1:%s  %s" % (self.centerLat,self.centerLon)
-
+        
         # new:
         if len(toks)==10:
             alat, alon = geomHelper.getIntermediatePoint(float(toks[0]), float(toks[1]), float(toks[(len(toks)/2)-1]), float(toks[(len(toks)/2)]), 0.5)
@@ -340,6 +335,26 @@ class BrowseImage():
             
         return self.centerLat, self.centerLon
     
+
+    #
+    #
+    # get the bounding box center
+    #
+    def calculateCenterFromBoundingBox(self):
+        if self.boondingBox is None:
+            raise Exception("boundingbox is None")
+        toks=self.boondingBox.split(" ")
+
+        if len(toks)==8:
+            alat, alon = geomHelper.getIntermediatePoint(float(toks[0]), float(toks[1]), float(toks[4]), float(toks[5]), 0.5)
+            alat1, alon1 = geomHelper.getIntermediatePoint(float(toks[2]), float(toks[3]), float(toks[6]), float(toks[7]), 0.5)
+            self.centerLat, self.centerLon = geomHelper.getIntermediatePoint(alat, alon, alat1, alon1, 0.5)
+            self.centerLat = formatUtils.EEEtoNumber("%s" % self.centerLat)
+            self.centerLon = formatUtils.EEEtoNumber("%s" % self.centerLon)
+        else:
+            raise Exception("bounding box has not 8 tokens but %s:%s" % (len(toks), self.boondingBox))
+
+        return self.centerLat, self.centerLon
     #
     #
     #
@@ -767,26 +782,37 @@ class BrowseImage():
 
 if __name__ == '__main__':
 
-    
+
+
+
     browse = BrowseImage()
 
     FIRST_POINT_NOT_TOP_LEFT="79.221973 12.940168 78.851969 10.898210 78.460248 12.792972 78.817962 14.826912 79.221973 12.940168"
+
+    LONG_FOOTPRINT = "-29.0339201023 -60.6462550126 -29.0340492471 -60.6455480925 -29.0585883525 -60.6513839028 -29.0585883525 -60.791306399 -28.8286765462 -60.791306399 -28.8286765462 -60.5989489567 -28.8864235071 -60.6125505674 -28.8865899146 -60.6116330738 -29.0339201023 -60.6462550126"
 
     CW = "13.237765 105.332170 13.120772 105.867829 12.589489 105.746931 12.706410 105.212384 13.237765 105.332170"
     CCW = "33.4251093094 -112.882289019 32.5686324568 -112.864185549 32.5820537783 -111.319645467 33.4389746971 -111.322751764 33.4251093094 -112.882289019"
 
     browse.setDebug(1)
-    browse.setFootprint(FIRST_POINT_NOT_TOP_LEFT)
-    print "FIRST_POINT_NOT_TOP_LEFT is CCW:%s"% browse.testIsCCW()
+    browse.setFootprint(LONG_FOOTPRINT)
 
-    browse.calculateCenter()
-    print "FIRST_POINT_NOT_TOP_LEFT center:%s" % (browse.getCenter(),)
+    browse.calculateBoondingBox(calculateCenter=False)
+    browse.calculateCenterFromBoundingBox()
+
+    print("bounding box: %s" % browse.getBoundingBox())
+    print("center: %s %s" % (browse.centerLat,browse.centerLon) )
+
+    #print "FIRST_POINT_NOT_TOP_LEFT is CCW:%s"% browse.testIsCCW()
+
+    #browse.calculateCenter()
+    #print "FIRST_POINT_NOT_TOP_LEFT center:%s" % (browse.getCenter(),)
 
     #browse.setFootprint(CW)
     #print "CW is CCW:%s"% browse.testIsCCW()
 
     #browse.calculateBoondingBox()
-    browse.testFirstPointTopLeft()
+    #browse.testFirstPointTopLeft()
 
     os._exit(1)
 

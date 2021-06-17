@@ -613,35 +613,39 @@ class Product_Planetscope(Product_Directory):
         print("FOOTPRINT 1:%s"  % (tmp1))
         self.metadata.setMetadataPair("footprint_json_to_lat-lon", tmp1)
         self.metadata.setMetadataPair("footprint_json_num-pairs", len(tmp[0]))
-        #os._exit(1)
+        footprint=tmp1
+        #self.metadata.setMetadataPair("first-footprint", footprint)
+
+        browseIm = BrowseImage()
+        self.browseIm = browseIm
         if len(tmp[0])==5:
+            # 5 point footprint, normal case
             footprint = "%s %s %s %s %s %s %s %s %s %s" % (tmp[0][0][1], tmp[0][0][0],
                                                            tmp[0][1][1], tmp[0][1][0],
                                                            tmp[0][2][1], tmp[0][2][0],
                                                            tmp[0][3][1], tmp[0][3][0],
                                                            tmp[0][0][1], tmp[0][0][0],
                                                        )
+            browseIm.setFootprint(footprint)
+            browseIm.setFootprint(footprint)
+            browseIm.calculateBoondingBox()
         else:
-            raise Exception("strange footprint, has not 5 pairs but: %s" % len(tmp[0]))
-            """footprint = "%s %s %s %s %s %s %s %s %s %s" % (tmp[0][0][1], tmp[0][0][0],
-                                                           tmp[0][1][1], tmp[0][1][0],
-                                                           tmp[0][2][1], tmp[0][2][0],
-                                                           tmp[0][3][1], tmp[0][3][0],
-                                                           tmp[0][0][1], tmp[0][0][0],
-                                                           )"""
+            # n point footprint:
+            # use as it is in footprint
+            # get center from boundingbox
+            footprint = tmp1
+            browseIm.setFootprint(footprint)
+            browseIm.calculateBoondingBox(calculateCenter=False)
+            browseIm.calculateCenterFromBoundingBox()
 
-        self.metadata.setMetadataPair("first-footprint", footprint)
-        #print("FOOTPRINT: %s"  % footprint)
-        #os._exit(1)
-
-        # get center
-        # make sure the footprint is CCW
-        browseIm = BrowseImage()
-        self.browseIm = browseIm
-        browseIm.setFootprint(footprint)
-        browseIm.calculateBoondingBox()
+        self.metadata.setMetadataPair("not-4-points-footprint", footprint)
         self.metadata.setMetadataPair(metadata.METADATA_FOOTPRINT, browseIm.getFootprint())
         self.metadata.setMetadataPair(metadata.METADATA_BOUNDING_BOX, browseIm.getBoundingBox())
+        print("FOOTPRINT: %s"  % browseIm.getFootprint())
+        print("BOUNDINGBOX: %s"  % browseIm.getBoundingBox())
+        print("CENTER: %s %s" % (browseIm.centerLat,browseIm.centerLon) )
+        #os._exit(1)
+
         if self.debug!=0:
             print "browseIm:%s" % browseIm.info()
         if not browseIm.getIsCCW():

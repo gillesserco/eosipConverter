@@ -205,7 +205,6 @@ class ingester_planetscope(ingester.Ingester):
             # set naming convention instance
             namingConventionSip = NamingConvention_HightRes(self.OUTPUT_SIP_PATTERN)
             eosipP.setNamingConventionSipInstance(namingConventionSip)
-            eosipP.setNamingConventionEoInstance(namingConventionSip)
 
             namingConventionEo = NamingConvention_HightRes(self.OUTPUT_EO_PATTERN)
             eosipP.setNamingConventionEoInstance(namingConventionEo)
