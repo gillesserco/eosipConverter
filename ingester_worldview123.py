@@ -290,6 +290,8 @@ class ingester_worldview123(ingester.Ingester):
 
             self.keepInfo('numberOfBands', processInfo.srcProduct.metadata.getMetadataValue('numberOfBands'))
 
+            self.keepInfo('bandId', processInfo.srcProduct.metadata.getMetadataValue('bandId'))
+
             self.keepInfo(metadata.METADATA_TYPECODE, processInfo.srcProduct.metadata.getMetadataValue(metadata.METADATA_TYPECODE))
 
             self.keepInfo(metadata.METADATA_INSTRUMENT, processInfo.srcProduct.metadata.getMetadataValue(metadata.METADATA_INSTRUMENT))

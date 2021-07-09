@@ -163,6 +163,7 @@ class Product_Worldview123(Product_Directory):
         'numberOfLooks': 'numberOfLooks',
         metadata.METADATA_PROCESSING_LEVEL: 'productLevel',
         metadata.METADATA_SCALE: 'productScale',
+        'bandId': 'bandId',
         'satId': 'satId'
         }
 
@@ -814,8 +815,14 @@ class Product_Worldview123(Product_Directory):
                 sensorMode = '4B_'
                 sensorOpMode = 'PM'
             elif nb == 8:
-                sensorMode = '8B_'  # OR SWB for some WV3
-                sensorOpMode = 'PM'
+                if bandID == "All-S":
+                    sensorMode = 'S8B' 
+                    sensorOpMode = 'SWIR'
+                elif bandID == "Multi":
+                    sensorMode = '8B_'  
+                    sensorOpMode = 'PM'
+                else:
+                    raise Exception("buildTypeCode; platform 3: bandId not correct: %s" % bandID)
             else:
                 raise Exception("buildTypeCode; platform 3: invalid number of bands:'%s'" % nb)
 
